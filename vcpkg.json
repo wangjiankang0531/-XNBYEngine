@@ -1,0 +1,39 @@
+{
+  "name": "hongtu-engine",
+  "version-semver": "0.1.0",
+  "description": "A high-performance 3D rendering engine using Vulkan",
+  "homepage": "https://github.com/yourusername/hongtu-engine",
+  "license": "MIT",
+  "builtin-baseline": "dbbd673624c057174dd51ef85758951032717715",
+  "dependencies": [
+    "vulkan-headers",
+    "vulkan-loader",
+    {
+      "name": "sdl2",
+      "features": [
+        "vulkan"
+      ]
+    },
+    "spdlog",
+    "fmt",
+    "glm",
+    "stb",
+    "volk",
+    "vulkan-memory-allocator",
+    "assimp",
+    "tinygltf",
+    "meshoptimizer",
+    "shaderc",
+    {
+      "name": "libdatachannel",
+      "features": [
+        "srtp"
+      ]
+    },
+    "nlohmann-json",
+    "imgui",
+    "gtest",
+    "curl"
+  ],
+  "supports": "windows | linux | macos"
+}

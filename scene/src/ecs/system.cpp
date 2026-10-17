@@ -1,0 +1,3 @@
+// Placeholder
+namespace hongtu::scene {
+}
