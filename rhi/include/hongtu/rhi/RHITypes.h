@@ -61,7 +61,11 @@ enum class Format : uint32_t {
     D32_SFLOAT,
     D32_SFLOAT_S8_UINT,
     D24_UNORM_S8_UINT,
-    BC2_UNORM_BLOCK,   // DXT3 compressed
+    BC2_UNORM_BLOCK, // DXT3 compressed
+    // Append formats to preserve existing serialized enum values.
+    BC1_RGB_UNORM_BLOCK,
+    BC7_UNORM_BLOCK,
+    BC7_SRGB_BLOCK,
     Count
 };
 

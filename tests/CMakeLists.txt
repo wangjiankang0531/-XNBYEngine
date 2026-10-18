@@ -14,6 +14,7 @@ add_executable(ht_tests
   src/rhi/test_descriptor_lifetime.cpp
   src/rhi/test_buffer.cpp
   src/rhi/test_texture.cpp
+  src/rhi/test_texture_upload_layout.cpp
   src/measure/test_measurement.cpp
   src/renderer/test_ancestor_fallback.cpp
   src/renderer/test_material.cpp

@@ -1,5 +1,6 @@
 #define VMA_IMPLEMENTATION
 #include "VulkanDevice.h"
+#include "hongtu/rhi/TextureUploadLayout.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanOffscreenTarget.h"
 #include <vulkan/vulkan_core.h>
@@ -300,9 +301,9 @@ bool VulkanDevice::createInstance(bool enableValidation, const std::vector<const
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "HongTu Engine";
+    appInfo.pApplicationName = "XNBY Engine";
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "HongTu";
+    appInfo.pEngineName = "XNBY";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_2;
 
@@ -313,6 +314,19 @@ bool VulkanDevice::createInstance(bool enableValidation, const std::vector<const
     createInfo.ppEnabledExtensionNames = extensions.data();
     createInfo.enabledLayerCount = static_cast<uint32_t>(layers.size());
     createInfo.ppEnabledLayerNames = layers.data();
+    // Capture validation diagnostics emitted during vkCreateInstance itself.
+    VkDebugUtilsMessengerCreateInfoEXT creationDebug{};
+    if (enableValidation) {
+      creationDebug.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+      creationDebug.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+      creationDebug.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+      creationDebug.pfnUserCallback = debugCallback;
+      createInfo.pNext = &creationDebug;
+    }
 #ifdef __APPLE__
     createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
@@ -340,7 +354,8 @@ void VulkanDevice::setupDebugMessenger() {
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
@@ -480,6 +495,9 @@ bool VulkanDevice::createLogicalDevice() {
     VkPhysicalDeviceFeatures deviceFeatures{};
     deviceFeatures.samplerAnisotropy = VK_TRUE;
     deviceFeatures.sampleRateShading = VK_TRUE;
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures);
+    deviceFeatures.textureCompressionBC = supportedFeatures.textureCompressionBC;
 
     std::vector<const char*> extensions;
     if (surface != VK_NULL_HANDLE) {
@@ -876,6 +894,34 @@ RHITexturePtr VulkanDevice::createTexture(const TextureDesc& desc) {
     // The IBL env cubes create a CUBE view below but the flag was missing.
     if (desc.type == TextureType::TextureCube)
         imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+    uint32_t extentMipLevels = 1;
+    for (auto n = std::max({desc.extent.width, desc.extent.height, desc.extent.depth}); n > 1; n /= 2)
+      ++extentMipLevels;
+    if (desc.mipLevels > extentMipLevels || !desc.sampleCount || desc.sampleCount > 64 ||
+        (desc.sampleCount & (desc.sampleCount - 1))) return nullptr;
+
+    // Query the actual format/type/tiling/usage combination before driver allocation.
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures);
+    if (!desc.extent.width || !desc.extent.height || !desc.extent.depth || !desc.mipLevels || !desc.arrayLayers ||
+        !imageInfo.usage || imageInfo.format == VK_FORMAT_UNDEFINED) return nullptr;
+    if (!desc.extent.width || !desc.extent.height || !desc.extent.depth || !desc.mipLevels || !desc.arrayLayers ||
+        !imageInfo.usage || imageInfo.format == VK_FORMAT_UNDEFINED) return nullptr;
+    VkImageFormatProperties allowed{};
+    const VkResult support = vkGetPhysicalDeviceImageFormatProperties(
+        physicalDevice, imageInfo.format, imageInfo.imageType, imageInfo.tiling,
+        imageInfo.usage, imageInfo.flags, &allowed);
+    if (!desc.extent.width || !desc.extent.height || !desc.extent.depth || !desc.mipLevels || !desc.arrayLayers ||
+        !imageInfo.usage || imageInfo.format == VK_FORMAT_UNDEFINED ||
+        (isBlockCompressedFormat(desc.format) && !supportedFeatures.textureCompressionBC) ||
+        support != VK_SUCCESS || desc.extent.width > allowed.maxExtent.width ||
+        desc.extent.height > allowed.maxExtent.height || desc.extent.depth > allowed.maxExtent.depth ||
+        desc.mipLevels > allowed.maxMipLevels || desc.arrayLayers > allowed.maxArrayLayers ||
+        !(allowed.sampleCounts & imageInfo.samples)) {
+      std::cerr << "createTexture: unsupported format, extent, mip, layer or sample configuration" << std::endl;
+      return nullptr;
+    }
 
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -1737,8 +1783,11 @@ VkFormat VulkanDevice::toVkFormat(Format format) const {
         VK_FORMAT_R32G32B32A32_UINT, VK_FORMAT_R32G32B32A32_SINT, VK_FORMAT_R32G32B32A32_SFLOAT,
         VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT,
         VK_FORMAT_BC2_UNORM_BLOCK,
+        VK_FORMAT_BC1_RGB_UNORM_BLOCK, VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK,
     };
-    return table[static_cast<size_t>(format)];
+    static_assert(std::size(table) == static_cast<size_t>(Format::Count));
+    const auto index = static_cast<size_t>(format);
+    return index < std::size(table) ? table[index] : VK_FORMAT_UNDEFINED;
 }
 
 Format VulkanDevice::fromVkFormat(VkFormat format) const {
@@ -1961,11 +2010,10 @@ void VulkanDevice::uploadTextureData(
         return;
     }
 
-    // 1. Calculate total staging buffer size
-    VkDeviceSize totalSize = 0;
-    for (const auto& mip : mips) {
-        totalSize += mip.dataSize;
-    }
+    // Validate every mip and align copy offsets before any staging allocation.
+    const auto layout = planTextureMipUpload(texFormat, vkTexture->getExtent(), vkTexture->getMipLevels(),
+                                             vkTexture->getArrayLayers(), arrayLayer, mips);
+    const VkDeviceSize totalSize = layout.bytes;
 
     // 2. Create host-visible staging buffer via VMA
     VkBufferCreateInfo stagingBufInfo{};
@@ -1990,15 +2038,13 @@ void VulkanDevice::uploadTextureData(
 
     // 3. Copy each mip's data into the staging buffer
     uint8_t* mapped = static_cast<uint8_t*>(stagingAllocResult.pMappedData);
-    VkDeviceSize offset = 0;
     for (size_t i = 0; i < mips.size(); i++) {
         if (!mips[i].data) {
             std::cerr << "uploadTextureData: mips[" << i << "].data is null, aborting" << std::endl;
             vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
             return;
         }
-        std::memcpy(mapped + offset, mips[i].data, mips[i].dataSize);
-        offset += mips[i].dataSize;
+        std::memcpy(mapped + layout.slices[i].offset, mips[i].data, mips[i].dataSize);
     }
     vmaFlushAllocation(allocator, stagingAllocation, 0, VK_WHOLE_SIZE);
 
@@ -2045,12 +2091,11 @@ void VulkanDevice::uploadTextureData(
     }
 
     // 6. Copy each mip level from staging buffer to image
-    VkDeviceSize bufferOffset = 0;
     for (uint32_t i = 0; i < static_cast<uint32_t>(mips.size()); ++i) {
         const auto& mip = mips[i];
 
         VkBufferImageCopy region{};
-        region.bufferOffset = bufferOffset;
+        region.bufferOffset = layout.slices[i].offset;
         region.bufferRowLength = 0;   // tightly packed
         region.bufferImageHeight = 0; // tightly packed
         region.imageSubresource.aspectMask = imageAspect;
@@ -2063,7 +2108,7 @@ void VulkanDevice::uploadTextureData(
         vkCmdCopyBufferToImage(cmd, stagingBuffer, image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        bufferOffset += mip.dataSize;
+
     }
 
     // 7. Barrier: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
