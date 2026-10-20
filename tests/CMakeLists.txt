@@ -26,6 +26,7 @@ add_executable(ht_tests
   src/renderer/test_dom_view_lod.cpp
   src/renderer/test_native_geometry_lod.cpp
   src/renderer/test_native_source_frontier.cpp
+  src/renderer/test_native_level_index.cpp
   src/renderer/test_ssao_kernel.cpp
   src/renderer/test_instance_buffer.cpp
   src/renderer/test_postprocess.cpp

@@ -81,6 +81,41 @@ namespace hongtu::renderer {
       return ticket;
     }
 
+    // A spatial index may jump directly to a complete mixed-depth cut of this
+    // branch. Validate it against the original tree, not a synthetic hierarchy.
+    std::optional<Ticket> prepareDescendants(const std::string& parent,
+                                             const std::vector<std::string>& auditedCut,
+                                             uint64_t candidateBytes,
+                                             size_t uploadParts) {
+      if (pending_ || !visible_.contains(parent) || !candidateBytes || !uploadParts || uploadParts > 64 ||
+          candidateBytes > budgetBytes_ - residentBytes_)
+        return {};
+      Cut selected(auditedCut.begin(), auditedCut.end());
+      if (selected.empty() || selected.size() != auditedCut.size() || selected.contains(parent))
+        return {};
+      Cut subtree;
+      std::function<void(const std::string&)> collect = [&](const auto& name) {
+        subtree.insert(name);
+        for (const auto& child : nodes_.at(name))
+          collect(child);
+      };
+      collect(parent);
+      for (const auto& name : selected)
+        if (!subtree.contains(name))
+          return {};
+      Cut replacement = visible_;
+      replacement.erase(parent);
+      replacement.insert(selected.begin(), selected.end());
+      try {
+        validateCut(replacement);
+      } catch (const std::invalid_argument&) {
+        return {};
+      }
+      Ticket ticket{++nextTicket_};
+      pending_ = Pending{ticket, std::move(replacement), candidateBytes, std::vector<bool>(uploadParts, false)};
+      return ticket;
+    }
+
     bool markPartReady(Ticket ticket, size_t part) {
       if (!pending_ || ticket.value != pending_->ticket.value || part >= pending_->ready.size())
         return false;
