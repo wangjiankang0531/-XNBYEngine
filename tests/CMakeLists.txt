@@ -3,6 +3,8 @@ include(GoogleTest)
 
 # Test executable
 add_executable(ht_tests
+  src/renderer/test_pose_smoother.cpp
+  src/renderer/test_follow_camera.cpp
   src/renderer/test_label_layout.cpp
   src/asset/test_shader_compiler.cpp
   src/scene/test_landscape_document.cpp
